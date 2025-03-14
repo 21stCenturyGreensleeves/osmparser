@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6" generator="openstreetmap-cgimap 2.0.1 (1844853 spike-06.openstreetmap.org)" copyright="OpenStreetMap and contributors" attribution="http://www.openstreetmap.org/copyright" license="http://opendatacommons.org/licenses/odbl/1-0/">
+ <bounds minlat="22.5910940" minlon="114.0142790" maxlat="22.5912500" maxlon="114.0146030"/>
+ <node id="3810814965" visible="true" version="2" changeset="61370001" timestamp="2018-08-05T09:49:21Z" user="XD346" uid="4892967" lat="22.5910371" lon="114.0134420"/>
+ <node id="3810814976" visible="true" version="5" changeset="120670987" timestamp="2022-05-07T14:37:47Z" user="Natsu_" uid="11243984" lat="22.5917109" lon="114.0166968">
+  <tag k="highway" v="motorway_junction"/>
+  <tag k="name" v="福龙"/>
+  <tag k="ref" v="6"/>
+ </node>
+ <node id="5810040464" visible="true" version="3" changeset="120670987" timestamp="2022-05-07T14:37:47Z" user="Natsu_" uid="11243984" lat="22.5915006" lon="114.0157612"/>
+ <node id="6395216538" visible="true" version="1" changeset="69067794" timestamp="2019-04-10T04:09:20Z" user="HYQ31" uid="7492212" lat="22.5911592" lon="114.0145492"/>
+ <node id="9720610887" visible="true" version="1" changeset="120632555" timestamp="2022-05-06T13:54:28Z" user="Natsu_" uid="11243984" lat="22.5910459" lon="114.0138009"/>
+ <node id="9720610888" visible="true" version="1" changeset="120632555" timestamp="2022-05-06T13:54:28Z" user="Natsu_" uid="11243984" lat="22.5910862" lon="114.0141538"/>
+ <node id="9720610889" visible="true" version="1" changeset="120632555" timestamp="2022-05-06T13:54:28Z" user="Natsu_" uid="11243984" lat="22.5910416" lon="114.0136253"/>
+ <way id="377694739" visible="true" version="10" changeset="141393012" timestamp="2023-09-17T18:03:52Z" user="Natsu_" uid="11243984">
+  <nd ref="3810814976"/>
+  <nd ref="5810040464"/>
+  <nd ref="6395216538"/>
+  <nd ref="9720610888"/>
+  <nd ref="9720610887"/>
+  <nd ref="9720610889"/>
+  <nd ref="3810814965"/>
+  <tag k="destination" v="福田;龙华"/>
+  <tag k="destination:ref" v="S3111"/>
+  <tag k="highway" v="motorway_link"/>
+  <tag k="junction:ref" v="6"/>
+  <tag k="lanes" v="2"/>
+  <tag k="oneway" v="yes"/>
+  <tag k="surface" v="asphalt"/>
+ </way>
+</osm>
