@@ -1,9 +1,9 @@
 import xml.etree.ElementTree as ET
 from collections import defaultdict
-
 import matplotlib.pyplot as plt
 from matplotlib import collections as mc
 import numpy as np
+from pyproj import Proj
 
 
 CAR_HIGHWAY_TYPES = {
@@ -15,11 +15,23 @@ CAR_HIGHWAY_TYPES = {
     'unclassified', 'residential', 'service'
 }
 
+
+def calculate_angle(prev_node, curr_node, next_node):
+    vec1 = (curr_node.x - prev_node.x, curr_node.y - prev_node.y)
+    vec2 = (next_node.x - curr_node.x, next_node.y - curr_node.y)
+
+    angle = np.degrees(np.arctan2(vec2[1], vec2[0]) -
+                       np.arctan2(vec1[1], vec1[0]))
+    return angle % 360
+
 class OSMNode:
-    def __init__(self, node_id, lat, lon):
+    def __init__(self, node_id, lat, lon, x, y):
         self.id = node_id
         self.lat = float(lat)
         self.lon = float(lon)
+        # 适应matplotlib的坐标系的改动 **
+        self.x = y
+        self.y = -x
         self.ways = set() #  记录这个节点所在的所有道路
         self.is_junction = False
         self.is_endpoint = False
@@ -39,6 +51,10 @@ class RoadSegment:
         self.nodes = segment_nodes  # 只存id
 
         self.owned = owned_way
+
+        self.geometry_segments = []
+        self.predecessor = None
+        self.successor = None
 
 class GeometrySegment:
     def __init__(self, seg_type, params, start_node, end_node):
@@ -61,22 +77,43 @@ class RoadNetwork:
         self.ways = {}
         self.junctions = []
         self.road_segments = {}
+        self.connections = defaultdict(list)
+
+        self.utm_zone = None
+        self.proj = None
+
+    # 获取UTM带号
+    def _determine_utm_zone(self, longitude):
+        return int((longitude + 180) // 6) + 1
 
     def parse_osm(self):
         tree = ET.parse(self.osm_file)
         root = tree.getroot()
 
+        lats, lons = [], []
+        for node in root.findall('node'):
+            lats.append(float(node.attrib['lat']))
+            lons.append(float(node.attrib['lon']))
+
+        if not lats or not lons:
+            raise ValueError("**NO NODES IN OSM FILE**")
+
+        center_lat = np.mean(lats)
+        center_lon = np.mean(lons)
+
+        self.utm_zone = self._determine_utm_zone(center_lat)
+        hemisphere = 'north' if center_lat >= 0 else 'south'
+        self.proj = Proj(proj='utm', zone=self.utm_zone, ellps='WGS84', south=(hemisphere == 'south'))
+
         for node in root.findall('node'):
             node_id = node.attrib['id']
-            self.nodes[node_id] = OSMNode(
-                node_id,
-                float(node.attrib['lat']),
-                float(node.attrib['lon'])
-            )
-        # 记录所有nodes到roadNetwork的nodes中
+            lat = float(node.attrib['lat'])
+            lon = float(node.attrib['lon'])
+            x, y = self.proj(lon, lat)
+
+            self.nodes[node_id] = OSMNode(node_id, lat, lon, x, y)
 
         for way in root.findall('way'):
-
             tags = {}
             for tag in way.findall('tag'):
                 tags[tag.attrib['k']] = tag.attrib.get('v', '')
@@ -207,6 +244,8 @@ class RoadNetwork:
         # 重新计算交叉点
         self.update_junctions_after_filtering()
 
+
+    # UTM坐标系统的坐标系方向与Matplotlib的默认坐标系方向不一致，UTM的坐标系y轴向上，Matplotlib的默认y轴向下
     def visualize_network(self, output_file="road_network.pdf"):
         if not self.road_segments:
             print("No segments to visualize.")
@@ -230,7 +269,7 @@ class RoadNetwork:
             for node_id in segment.nodes:
                 if node_id in self.nodes:
                     node = self.nodes[node_id]
-                    coords.append([node.lon, node.lat])
+                    coords.append([node.x, node.y])
 
             if len(coords) > 1:
                 # 转换为线段集合
@@ -250,7 +289,7 @@ class RoadNetwork:
         # 绘制交叉点（优化渲染顺序）
         if self.junctions:
             junc_coords = np.array([
-                (self.nodes[jid].lon, self.nodes[jid].lat)
+                (self.nodes[jid].x, self.nodes[jid].y)
                 for jid in self.junctions if jid in self.nodes
             ])
             ax.scatter(
