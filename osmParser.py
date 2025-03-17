@@ -208,7 +208,7 @@ class RoadNetwork:
         center_lat = np.mean(lats)
         center_lon = np.mean(lons)
 
-        self.utm_zone = self._determine_utm_zone(center_lat)
+        self.utm_zone = self._determine_utm_zone(center_lon)
         hemisphere = 'north' if center_lat >= 0 else 'south'
         self.proj = Proj(proj='utm', zone=self.utm_zone, ellps='WGS84', south=(hemisphere == 'south'))
 
@@ -229,31 +229,20 @@ class RoadNetwork:
 
             way_id = way.attrib['id']
             way_nodes = [nd.attrib['ref'] for nd in way.findall('nd')]
+            self.ways[way.attrib['id']] = OSMWay(way_id, tags, way_nodes)
 
-            for nd in way.findall('nd'):
-                node_ref = nd.attrib['ref']
-                if node_ref in self.nodes:
-                    node = self.nodes[node_ref]
-                    node.ways.add(way_id)
-                    if len(node.ways) >= 2:
-                        node.is_junction = True
-            # 便利所有way，对于每个way中的所有node处理其ways中的内容
-            # 如果ways数量超过2则判定这个点为junction
+            for node_id in way_nodes:
+                if node_id in self.nodes:
+                    self.nodes[node_id].ways.add(way_id)
 
-            self.ways[way.attrib['id']] = OSMWay(way.attrib['id'], tags, way_nodes)
-            # 记录way中所有的nd的id记录在list中，创建一个OSMWay的实例，放入ways
-
-    def mark_endpoints(self):
-        for way in self.ways.values():
-            if len(way.node_ids) == 0:
-                continue
-            start_node = self.nodes.get(way.node_ids[0])
-            end_node = self.nodes.get(way.node_ids[-1])
-
-            if start_node and not start_node.is_junction:
-                start_node.is_endpoint = True
-            if end_node and not end_node.is_junction:
-                end_node.is_endpoint = True
+        for node in self.nodes.values():
+            if len(node.ways) >= 2:
+                node.is_junction = True
+            for way_id in node.ways:
+                way = self.ways[way_id]
+                if way.node_ids[0] == node.id or way.node_ids[-1] == node.id:
+                    node.is_endpoint = True
+        # 标记 点 是否为 junction 或 endpoint
 
     def split_way_into_segment(self):
         segment_id = 10000
