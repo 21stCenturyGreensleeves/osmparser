@@ -4,7 +4,10 @@ import matplotlib.pyplot as plt
 from matplotlib import collections as mc
 import numpy as np
 from pyproj import Proj
+from scipy.optimize import least_squares
 
+MAX_SPEED = 40
+LANES_NUMBER = 2
 
 CAR_HIGHWAY_TYPES = {
     'motorway', 'motorway_junction', 'motorway_link',
@@ -29,10 +32,9 @@ class OSMNode:
         self.id = node_id
         self.lat = float(lat)
         self.lon = float(lon)
-        # 适应matplotlib的坐标系的改动 **
-        self.x = y
+        self.x = y        # 适应matplotlib的坐标系的改动
         self.y = -x
-        self.ways = set() #  记录这个节点所在的所有道路
+        self.ways = set()      # 记录这个节点所在的所有道路
         self.is_junction = False
         self.is_endpoint = False
 
@@ -42,6 +44,42 @@ class OSMWay:
         self.tags = tags
         self.node_ids = nodes
 
+        self.oneway = False
+        self.lanes = LANES_NUMBER
+        self.layer = 1
+        self.maxspeed = MAX_SPEED
+        self.tunnel = False
+
+        if 'lanes' in self.tags:
+            self.lanes = int(self.tags['lanes'])
+        if 'layer' in self.tags:
+            self.layer = int(self.tags['layer'])
+        if 'maxspeed' in self.tags:
+            self.maxspeed = float(self.tags['maxspeed'])
+        if 'oneway' in self.tags and self.tags['oneway'] == 'yes':
+            self.oneway = True
+        if 'tunnel' in self.tags and self.tags['tunnel'] == 'yes':
+            self.tunnel = True
+
+class GeometrySegment:
+    def __init__(self, start_node_id, end_node_id, length, start_curvature, end_curvature):
+        self.start = start_node_id
+        self.end = end_node_id
+        self.length = length
+        self.start_curvature = start_curvature
+        self.end_curvarure = end_curvature
+
+class Line(GeometrySegment):
+    def __init__(self, start_node_id, end_node_id, length):
+        super().__init__(start_node_id, end_node_id, length, 0.0, 0.0)
+
+class Arc(GeometrySegment):
+    def __init__(self, start_node_id, end_node_id, length, curvature):
+        super().__init__(start_node_id, end_node_id, length, curvature, curvature)
+
+class Spiral(GeometrySegment):
+    def __init__(self, start_node_id, end_node_id, length, start_curvature, end_curvature):
+        super().__init__(start_node_id, end_node_id, length, start_curvature, end_curvature)
 
 class RoadSegment:
     def __init__(self, segment_id, start_id, end_id, segment_nodes, owned_way):
@@ -56,20 +94,89 @@ class RoadSegment:
         self.predecessor = None
         self.successor = None
 
-class GeometrySegment:
-    def __init__(self, seg_type, params, start_node, end_node):
-        self.type = seg_type
-        self.params = params
-        self.start = start_node
-        self.end = end_node
-        self.length = self._calculate_length()
+    def compute_geometry_segments(self, nodes_dict):
+        coords = []
+        for node_id in self.nodes:
+            node = nodes_dict[node_id]
+            coords.append((node.x, node.y))
+        if len(coords) < 2:
+            return
+        curvatures = self._calculate_curvatures(coords)
+        self._segment_geometry(coords, curvatures, nodes_dict)
 
-    def _calculate_length(self):
-        if self.type == 'line':
-            return self.params['length']
-        elif self.type == 'arc':
-            return abs(self.params['curvature']) * self.params['angle']
+    def _calculate_curvatures(self, coords):
+        n = len(coords)
+        curvatures = np.zeros(n)
+        for i in range(1, n - 1):
+            x_prev, y_prev = coords[i - 1]
+            x_curr, y_curr = coords[i]
+            x_next, y_next = coords[i + 1]
+            dx1 = x_curr - x_prev
+            dy1 = y_curr - y_prev
+            dx2 = x_next - x_curr
+            dy2 = y_next - y_curr
+            denom = (dx1 ** 2 + dy1 ** 2)  ** 1.5 + (dx2 ** 2 + dy2 ** 2)  ** 1.5
+            if denom == 0:
+                curvature = 0.0
+            else:
+                area = dx1 * dy2 - dy1 * dx2
+                curvature = 2 * area / denom
+            curvatures[i] = curvature
+        curvatures[0] = curvatures[1]
+        curvatures[-1] = curvatures[-2]
+        return curvatures
 
+    def _segment_geometry(self, coords, curvatures, nodes_dict):
+        n = len(coords)
+        i = 0
+        while i < n - 1:
+            j = self._find_next_segment(coords, curvatures, i)
+            start_node_id = self.nodes[i]
+            end_node_id = self.nodes[j]
+            segment_coords = coords[i:j + 1]
+            length = self._calculate_length(segment_coords)
+            k_start = curvatures[i]
+            k_end = curvatures[j]
+            if abs(k_start - k_end) < 1e-5:
+                if abs(k_start) < 1e-5:
+                    geom = Line(start_node_id, end_node_id, length)
+                else:
+                    geom = Arc(start_node_id, end_node_id, length, k_start)
+            else:
+                geom = Spiral(start_node_id, end_node_id, length, k_start, k_end)
+            self.geometry_segments.append(geom)
+            i = j
+
+    def _find_next_segment(self, coords, curvatures, start_idx):
+        n = len(coords)
+        if start_idx >= n - 1:
+            return start_idx
+        current_type = self._determine_segment_type(curvatures, start_idx)
+        for j in range(start_idx + 1, n):
+            seg_type = self._determine_segment_type(curvatures, j)
+            if seg_type != current_type:
+                return j - 1
+        return n - 1
+
+    def _determine_segment_type(self, curvatures, idx):
+        if idx == 0:
+            return 'line'
+        k_prev = curvatures[idx - 1]
+        k_curr = curvatures[idx]
+        if abs(k_curr) < 1e-5:
+            return 'line'
+        elif abs(k_curr - k_prev) < 1e-5:
+            return 'arc'
+        else:
+            return 'spiral'
+
+    def _calculate_length(self, coords):
+        length = 0.0
+        for i in range(1, len(coords)):
+            dx = coords[i][0] - coords[i - 1][0]
+            dy = coords[i][1] - coords[i - 1][1]
+            length += np.hypot(dx, dy)
+        return length
 class RoadNetwork:
     def __init__(self, osm_file):
         self.osm_file = osm_file
@@ -245,7 +352,7 @@ class RoadNetwork:
         self.update_junctions_after_filtering()
 
 
-    # UTM坐标系统的坐标系方向与Matplotlib的默认坐标系方向不一致，UTM的坐标系y轴向上，Matplotlib的默认y轴向下
+# UTM坐标系统的坐标系方向与Matplotlib的默认坐标系方向不一致，UTM的坐标系y轴向上，Matplotlib的默认y轴向下
     def visualize_network(self, output_file="road_network.pdf"):
         if not self.road_segments:
             print("No segments to visualize.")
@@ -315,8 +422,8 @@ class RoadNetwork:
         plt.close()
 
 
-if __name__ == "__main__":
-    road_network = RoadNetwork('osm/map (1).osm')
-    road_network.process_road_network()
-    road_network.filter_isolated_components(3)
-    road_network.visualize_network()
+# if __name__ == "__main__":
+#     road_network = RoadNetwork('osm/map (1).osm')
+#     road_network.process_road_network()
+#     road_network.filter_isolated_components(3)
+#     road_network.visualize_network()
