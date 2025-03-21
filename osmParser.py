@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 from matplotlib import collections as mc
 import numpy as np
 from pyproj import Proj
-from scipy.optimize import least_squares
 
 MAX_SPEED = 40
 LANES_NUMBER = 2
@@ -13,32 +12,33 @@ CAR_HIGHWAY_TYPES = {
     'motorway', 'motorway_junction', 'motorway_link',
     'trunk', 'trunk_link',
     'primary', 'primary_link',
-    'secondary', 'secondary_link'
-    'tertiary', 'tertiary',
+    'secondary', 'secondary_link',
+    'tertiary',
     'unclassified', 'residential', 'service'
 }
 
-
-def calculate_angle(prev_node, curr_node, next_node):
-    vec1 = (curr_node.x - prev_node.x, curr_node.y - prev_node.y)
-    vec2 = (next_node.x - curr_node.x, next_node.y - curr_node.y)
-
-    angle = np.degrees(np.arctan2(vec2[1], vec2[0]) -
-                       np.arctan2(vec1[1], vec1[0]))
-    return angle % 360
-
 class OSMNode:
+    """
+    记录节点信息
+    """
     def __init__(self, node_id, lat, lon, x, y):
         self.id = node_id
         self.lat = float(lat)
         self.lon = float(lon)
-        self.x = y        # 适应matplotlib的坐标系的改动
+        # 适应matplotlib的坐标系的改动
+        self.x = y
         self.y = -x
-        self.ways = set()      # 记录这个节点所在的所有道路
+        self.ways = set() #  记录这个节点所在的所有道路
         self.is_junction = False
         self.is_endpoint = False
+        # TODO 是否要记录这个点相邻的路段信息？
+        self.adjacent_segment = []
 
+# Node记录
 class OSMWay:
+    """
+    记录道路信息，包含道路的车道数量，限速，layers表示的高度层级，是否为单行道，是否为隧道
+    """
     def __init__(self, way_id, tags, nodes):
         self.id = way_id
         self.tags = tags
@@ -61,27 +61,48 @@ class OSMWay:
         if 'tunnel' in self.tags and self.tags['tunnel'] == 'yes':
             self.tunnel = True
 
+
 class GeometrySegment:
-    def __init__(self, start_node_id, end_node_id, length, start_curvature, end_curvature):
+    """
+    将road segment分割为多段Geometry Segment便于xodr道路的生成，
+    """
+    def __init__(self, start_node_id, end_node_id, node_ids, length, start_curvature, end_curvature):
         self.start = start_node_id
         self.end = end_node_id
+        self.node_ids = node_ids
         self.length = length
         self.start_curvature = start_curvature
-        self.end_curvarure = end_curvature
-
+        self.end_curvature = end_curvature
+    def print_info(self):
+        """打印几何段基础信息"""
+        print(
+            f"Geometry Type: {self.__class__.__name__}\n"
+            f"Nodes Count: {len(self.node_ids)}\n"
+            f"Start Node: {self.start}\n"
+            f"End Node: {self.end}\n"
+            f"Length: {self.length:.2f}m\n"
+            f"Start Curvature: {self.start_curvature:.4f}\n"
+            f"End Curvature: {self.end_curvature:.4f}\n"
+            "-----------------------"
+        )
 class Line(GeometrySegment):
-    def __init__(self, start_node_id, end_node_id, length):
-        super().__init__(start_node_id, end_node_id, length, 0.0, 0.0)
+    def __init__(self, start_node_id, end_node_id, node_ids, length):
+        super().__init__(start_node_id, end_node_id, node_ids, length, 0.0, 0.0)
 
 class Arc(GeometrySegment):
-    def __init__(self, start_node_id, end_node_id, length, curvature):
-        super().__init__(start_node_id, end_node_id, length, curvature, curvature)
+    def __init__(self, start_node_id, end_node_id, node_ids, length, curvature):
+        super().__init__(start_node_id, end_node_id, node_ids, length, curvature, curvature)
 
 class Spiral(GeometrySegment):
-    def __init__(self, start_node_id, end_node_id, length, start_curvature, end_curvature):
-        super().__init__(start_node_id, end_node_id, length, start_curvature, end_curvature)
+    def __init__(self, start_node_id, end_node_id, node_ids, length, start_curvature, end_curvature):
+        super().__init__(start_node_id, end_node_id, node_ids, length, start_curvature, end_curvature)
+
+
 
 class RoadSegment:
+    """
+    将道路按junction与segment划分为多条路段
+    """
     def __init__(self, segment_id, start_id, end_id, segment_nodes, owned_way):
         self.id = segment_id
         self.start = start_id
@@ -94,15 +115,20 @@ class RoadSegment:
         self.predecessor = None
         self.successor = None
 
+
     def compute_geometry_segments(self, nodes_dict):
+        # 检索nodes对象
         coords = []
         for node_id in self.nodes:
             node = nodes_dict[node_id]
             coords.append((node.x, node.y))
+        # 如果坐标总数小于2则无法成立
         if len(coords) < 2:
             return
         curvatures = self._calculate_curvatures(coords)
-        self._segment_geometry(coords, curvatures, nodes_dict)
+        self._segment_geometry(coords, curvatures)
+        for segment in self.geometry_segments:
+            segment.print_info()
 
     def _calculate_curvatures(self, coords):
         n = len(coords)
@@ -111,22 +137,16 @@ class RoadSegment:
             x_prev, y_prev = coords[i - 1]
             x_curr, y_curr = coords[i]
             x_next, y_next = coords[i + 1]
-            dx1 = x_curr - x_prev
-            dy1 = y_curr - y_prev
-            dx2 = x_next - x_curr
-            dy2 = y_next - y_curr
-            denom = (dx1 ** 2 + dy1 ** 2)  ** 1.5 + (dx2 ** 2 + dy2 ** 2)  ** 1.5
-            if denom == 0:
-                curvature = 0.0
-            else:
-                area = dx1 * dy2 - dy1 * dx2
-                curvature = 2 * area / denom
-            curvatures[i] = curvature
-        curvatures[0] = curvatures[1]
-        curvatures[-1] = curvatures[-2]
+            # 计算向量夹角
+            vec1 = (x_curr - x_prev, y_curr - y_prev)
+            vec2 = (x_next - x_curr, y_next - y_curr)
+            angle = np.arctan2(vec2[1], vec2[0]) - np.arctan2(vec1[1], vec1[0])
+            curvatures[i] = angle
+        curvatures = np.abs(curvatures)
+        print(curvatures)
         return curvatures
 
-    def _segment_geometry(self, coords, curvatures, nodes_dict):
+    def _segment_geometry(self, coords, curvatures):
         n = len(coords)
         i = 0
         while i < n - 1:
@@ -139,11 +159,11 @@ class RoadSegment:
             k_end = curvatures[j]
             if abs(k_start - k_end) < 1e-5:
                 if abs(k_start) < 1e-5:
-                    geom = Line(start_node_id, end_node_id, length)
+                    geom = Line(start_node_id, end_node_id, self.nodes[i:j+1], length)
                 else:
-                    geom = Arc(start_node_id, end_node_id, length, k_start)
+                    geom = Arc(start_node_id, end_node_id, self.nodes[i:j+1], length, k_start)
             else:
-                geom = Spiral(start_node_id, end_node_id, length, k_start, k_end)
+                geom = Spiral(start_node_id, end_node_id, self.nodes[i:j+1], length, k_start, k_end)
             self.geometry_segments.append(geom)
             i = j
 
@@ -155,7 +175,7 @@ class RoadSegment:
         for j in range(start_idx + 1, n):
             seg_type = self._determine_segment_type(curvatures, j)
             if seg_type != current_type:
-                return j - 1
+                return max(j - 1, start_idx+1)
         return n - 1
 
     def _determine_segment_type(self, curvatures, idx):
@@ -177,6 +197,7 @@ class RoadSegment:
             dy = coords[i][1] - coords[i - 1][1]
             length += np.hypot(dx, dy)
         return length
+
 class RoadNetwork:
     def __init__(self, osm_file):
         self.osm_file = osm_file
@@ -208,7 +229,7 @@ class RoadNetwork:
         center_lat = np.mean(lats)
         center_lon = np.mean(lons)
 
-        self.utm_zone = self._determine_utm_zone(center_lon)
+        self.utm_zone = self._determine_utm_zone(center_lat)
         hemisphere = 'north' if center_lat >= 0 else 'south'
         self.proj = Proj(proj='utm', zone=self.utm_zone, ellps='WGS84', south=(hemisphere == 'south'))
 
@@ -229,20 +250,31 @@ class RoadNetwork:
 
             way_id = way.attrib['id']
             way_nodes = [nd.attrib['ref'] for nd in way.findall('nd')]
-            self.ways[way.attrib['id']] = OSMWay(way_id, tags, way_nodes)
 
-            for node_id in way_nodes:
-                if node_id in self.nodes:
-                    self.nodes[node_id].ways.add(way_id)
+            for nd in way.findall('nd'):
+                node_ref = nd.attrib['ref']
+                if node_ref in self.nodes:
+                    node = self.nodes[node_ref]
+                    node.ways.add(way_id)
+                    if len(node.ways) >= 2:
+                        node.is_junction = True
+            # 便利所有way，对于每个way中的所有node处理其ways中的内容
+            # 如果ways数量超过2则判定这个点为junction
 
-        for node in self.nodes.values():
-            if len(node.ways) >= 2:
-                node.is_junction = True
-            for way_id in node.ways:
-                way = self.ways[way_id]
-                if way.node_ids[0] == node.id or way.node_ids[-1] == node.id:
-                    node.is_endpoint = True
-        # 标记 点 是否为 junction 或 endpoint
+            self.ways[way.attrib['id']] = OSMWay(way.attrib['id'], tags, way_nodes)
+            # 记录way中所有的nd的id记录在list中，创建一个OSMWay的实例，放入ways
+
+    def mark_endpoints(self):
+        for way in self.ways.values():
+            if len(way.node_ids) == 0:
+                continue
+            start_node = self.nodes.get(way.node_ids[0])
+            end_node = self.nodes.get(way.node_ids[-1])
+
+            if start_node and not start_node.is_junction:
+                start_node.is_endpoint = True
+            if end_node and not end_node.is_junction:
+                end_node.is_endpoint = True
 
     def split_way_into_segment(self):
         segment_id = 10000
@@ -263,11 +295,23 @@ class RoadNetwork:
                         self.road_segments[segment_id] = segment
                         segment_id += 1
                     segment_nodes = [node_id]
+            # 是否可能会出现结尾endpoint没有被标记的情况？
+            if len(segment_nodes) > 1:
+                segment = RoadSegment(segment_id,
+                                        segment_nodes[0],
+                                        segment_nodes[-1],
+                                        segment_nodes.copy(),
+                                        way)
+                self.road_segments[segment_id] = segment
+                segment_id += 1
 
     def process_road_network(self):
         self.parse_osm()
         self.mark_endpoints()
         self.split_way_into_segment()
+
+        for segment in self.road_segments.values():
+            segment.compute_geometry_segments(self.nodes)
 
     def find_connected_components(self):
         parent = {}  # 记录seg节点的父节点
@@ -341,7 +385,7 @@ class RoadNetwork:
         self.update_junctions_after_filtering()
 
 
-# UTM坐标系统的坐标系方向与Matplotlib的默认坐标系方向不一致，UTM的坐标系y轴向上，Matplotlib的默认y轴向下
+    # UTM坐标系统的坐标系方向与Matplotlib的默认坐标系方向不一致，UTM的坐标系y轴向上，Matplotlib的默认y轴向下
     def visualize_network(self, output_file="road_network.pdf"):
         if not self.road_segments:
             print("No segments to visualize.")
@@ -411,8 +455,8 @@ class RoadNetwork:
         plt.close()
 
 
-# if __name__ == "__main__":
-#     road_network = RoadNetwork('osm/map (1).osm')
-#     road_network.process_road_network()
-#     road_network.filter_isolated_components(3)
-#     road_network.visualize_network()
+if __name__ == "__main__":
+    road_network = RoadNetwork('osm/sanjiao.osm')
+    road_network.process_road_network()
+    road_network.filter_isolated_components(0)
+    road_network.visualize_network()
