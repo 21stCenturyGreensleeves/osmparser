@@ -241,15 +241,6 @@ class OSMWay:
                     self.ways_road_segments.append(segment)
                     segment_id += 1
                 segment_nodes = [node_id]
-            # 是否可能会出现结尾endpoint没有被标记的情况？保险
-            if len(segment_nodes) > 1:
-                segment = RoadSegment(segment_id,
-                                      segment_nodes[0],
-                                      segment_nodes[-1],
-                                      segment_nodes.copy(),
-                                      self.id)
-                self.ways_road_segments.append(segment)
-                segment_id += 1
 
 
 class RoadSegment:

@@ -1,7 +1,6 @@
 import os
-from network import RoadNetwork
-from osm_processor.xodr_generator import XODRGenerator
 from utils import visualize_network
+from models import RoadNetwork
 
 def main():
     # 获取OSM文件路径
@@ -15,13 +14,14 @@ def main():
     # 处理数据
     processor.process_road_network()
     visualize_network(processor)
-    # 生成XODR
-    generator = XODRGenerator()
-    odr = generator.generate(processor)
+    for way_id, way in processor.ways.items():
+        print(f"way_id : {way_id}")
+        for seg in way.ways_road_segments:
+            print(seg.id)
+    for nodes in processor.nodes.values():
+        if nodes.is_junction or nodes.is_endpoint:
+            print("yes")
 
-    # 保存文件
-    output_path = os.path.join("output", "generated_road.xodr")
-    odr.write_xml(output_path)
 
 if __name__ == "__main__":
     main()
