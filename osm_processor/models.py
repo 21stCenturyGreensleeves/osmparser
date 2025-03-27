@@ -453,8 +453,8 @@ class RoadSegment:
 
     def fit_line(self, k, indices):
         """
-        对曲率序列 k 在指定索引范围 indices 上进行线性回归。
-        返回斜率 a、截距 b 和最大绝对误差 max_error。
+        对曲率序列 k 在指定索引范围 indices 上进行线性回归
+        返回斜率 a、截距 b 和最大绝对误差 max_error 进行判断是否类型继续\已经改变
         """
         x = np.array(indices)
         y = np.array([k[i] for i in indices])
@@ -468,21 +468,7 @@ class RoadSegment:
 
     def split_into_geom(self, epsilon=0.0001, delta=0.001, eta=0.001):
         """
-        将曲率序列 k 分割成无缝连接的直线、弧线和螺旋线段，并提供曲率信息。
-
-        参数：
-        - k: 曲率值列表
-        - epsilon: 拟合误差阈值
-        - delta: 斜率阈值，区分恒定和线性变化
-        - eta: 曲率阈值，区分直线和弧线
-
-        返回：
-        - segments: 列表，每个元素为 (start_idx, end_idx, type, curvature_info)
-          - type: 'straight', 'arc', 'spiral'
-          - curvature_info:
-            - 直线: 0
-            - 弧线: 曲率值 b
-            - 螺旋线: (start_curvature, end_curvature)
+        将曲率序列 k 分割成无缝连接的直线、弧线和螺旋线段，并提供曲率信息
         """
         n = len(self.curvatures)
         segments = []
@@ -550,9 +536,7 @@ class RoadSegment:
                 segments.append((i, n - 1, type_, curvature_info, self.calculate_geom_length(i, n-1)))
                 break
         self.geometry_segments = []
-        """
-        填充路段的geometry_segment TODO：目前是将一整段都当作
-        """
+        # TODO 目前是将一整段segment直接转变为road，后续是否需要改变？
         for start, end, type_, curvature_info, length in segments:
             geom_seg = None
             if type_ == 'straight':
@@ -621,7 +605,7 @@ class Line(GeometrySegment):
             type_="straight"
         )
 class Arc(GeometrySegment):
-    """圆弧段，曲率恒定"""
+    """圆弧，曲率恒定"""
     def __init__(self, id, start_node_id, end_node_id, node_ids, length, curvature):
         super().__init__(
             id=id,
@@ -634,7 +618,7 @@ class Arc(GeometrySegment):
             type_="arc"
         )
 class Spiral(GeometrySegment):
-    """螺旋线段，曲率线性变化"""
+    """螺旋线，曲率从起始曲率到结束曲律进行线性变化"""
     def __init__(self, id, start_node_id, end_node_id, node_ids, length, start_curvature, end_curvature):
         super().__init__(
             id=id,
@@ -643,7 +627,7 @@ class Spiral(GeometrySegment):
             node_ids=node_ids,
             length=length,
             start_curvature=start_curvature,  # 起始曲率
-            end_curvature=end_curvature,      # 结束曲率（与起始不同）
+            end_curvature=end_curvature,      # 结束曲率
             type_="spiral"
         )
 
