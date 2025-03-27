@@ -89,3 +89,22 @@ def visualize_network(roadnetwork, output_file="road_network.pdf"):
         transparent=False  # 保持白色背景
     )
     plt.close()
+
+def seg_to_parampoly3(coords):
+    """
+    coeff_x[0, 1, 2, 3]: du, cu, bu, au
+    coeff_y[0, 1, 2, 3]: dv, cv, bv, av
+    """
+    diffs = np.diff(coords, axis=0)
+    chord_lengths = np.linalg.norm(diffs, axis=1)
+    t = np.insert(np.cumsum(chord_lengths), 0, 0)
+    t_normalized = t / t[-1]
+
+    x = coords[:, 0]
+    y = coords[:, 1]
+
+    A = np.vstack([t_normalized ** 3, t_normalized ** 2, t_normalized, np.ones_like(t_normalized)]).T
+    coeff_x, _, _, _ = np.linalg.lstsq(A, x, rcond=None)
+    coeff_y, _, _, _ = np.linalg.lstsq(A, y, rcond=None)
+
+    return coeff_x, coeff_y

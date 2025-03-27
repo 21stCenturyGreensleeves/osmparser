@@ -1,0 +1,4 @@
+使用xodr.PlanView()创建一个planView，向其中添加xodr.geometry类型的集合体
+由roadMark创建centerlane，创建lanesec
+
+对于CommonJunctionCreator，对其添加：add_incoming_cartesian_geometry的时候xy不能为相同

@@ -1,0 +1,79 @@
+<?xml version='1.0' encoding='utf-8'?>
+<OpenDRIVE>
+    <header name="my_road_network" revMajor="1" revMinor="5" date="2025-03-26 21:16:18.043650" north="0.0" south="0.0" east="0.0" west="0.0"/>
+    <road rule="RHT" id="1" junction="-1" length="316.85221909407363">
+        <link/>
+        <planView>
+            <geometry s="0" x="0" y="0" hdg="0" length="37.54079667781586">
+                <spiral curvStart="-2.386958189947234e-05" curvEnd="-0.004414439217681315"/>
+            </geometry>
+            <geometry s="37.54079667781586" x="37.51460980189311" y="-1.0475803393364733" hdg="-0.08330882411921166" length="21.70163420345833">
+                <spiral curvStart="-0.004390569635781844" curvEnd="-0.006000554331374697"/>
+            </geometry>
+            <geometry s="59.24243088127419" x="59.00217187654112" y="-4.004956055585038" hdg="-0.19606100976822166" length="19.94481577811724">
+                <arc curvature="-0.008803303366460987"/>
+            </geometry>
+            <geometry s="79.18724665939143" x="78.12429168305172" y="-9.583424376393182" hdg="-0.37164127365116534" length="21.307664200778976">
+                <spiral curvStart="-0.005066304653012613" curvEnd="-0.0024764920505173926"/>
+            </geometry>
+            <geometry s="100.4949108601704" x="97.60577834471187" y="-18.19980647100357" hdg="-0.4520009632979453" length="16.937410832686165">
+                <spiral curvStart="-0.0024764920505173788" curvEnd="-0.004013240504904353"/>
+            </geometry>
+            <geometry s="117.43232169285658" x="112.6482477028852" y="-25.979750444375753" hdg="-0.5069605965406634" length="18.482973157306166">
+                <arc curvature="-0.002745516456878072"/>
+            </geometry>
+            <geometry s="135.91529485016275" x="128.57193424737238" y="-35.35968655201748" hdg="-0.5577059035160832" length="17.664101879024624">
+                <spiral curvStart="-0.004224527846242075" curvEnd="-0.008731635519890459"/>
+            </geometry>
+            <geometry s="153.57939672918738" x="143.0596453617417" y="-45.44847529348956" hdg="-0.672135398346409" length="17.98297416341121">
+                <spiral curvStart="-0.008731635519890438" curvEnd="-0.0031780676461491478"/>
+            </geometry>
+            <geometry s="171.56237089259858" x="156.40552038132518" y="-57.4884748466682" hdg="-0.7792213405108023" length="16.808721570141593">
+                <spiral curvStart="-0.0031780676461491512" curvEnd="-0.006254425902006998"/>
+            </geometry>
+            <geometry s="188.37109246274017" x="167.93656796279305" y="-69.7121847102393" hdg="-0.8584954193923591" length="17.44805599018834">
+                <spiral curvStart="-0.006254425902006998" curvEnd="-0.004210456690953032"/>
+            </geometry>
+            <geometry s="205.81914845292852" x="178.68118326993735" y="-83.4517613883713" hdg="-0.949791348098716" length="21.132616298556275">
+                <spiral curvStart="-0.004210456690953032" curvEnd="-0.00023888481752280116"/>
+            </geometry>
+            <geometry s="226.9517647514848" x="190.44625523997928" y="-101.00408134466683" hdg="-0.9968044615386457" length="47.115447515545185">
+                <spiral curvStart="-0.00023888481752280463" curvEnd="0.001675517777294043"/>
+            </geometry>
+            <geometry s="274.06721226702996" x="216.39899548503607" y="-140.32435231904543" hdg="-0.9629606591310436" length="15.549533005300637">
+                <spiral curvStart="0.001675517777294043" curvEnd="0.0047472949890752306"/>
+            </geometry>
+            <geometry s="289.6167452723306" x="225.5441624663938" y="-152.8982495840834" hdg="-0.913024789582281" length="13.36995949596505">
+                <spiral curvStart="0.00474729498907521" curvEnd="0.01060896918712921"/>
+            </geometry>
+            <geometry s="302.9867047682957" x="234.17972546496327" y="-163.09748575478534" hdg="-0.8103684745596849" length="13.865514325777946">
+                <spiral curvStart="0.010608969187129252" curvEnd="5.551115123125783e-17"/>
+            </geometry>
+        </planView>
+        <elevationProfile/>
+        <lateralProfile/>
+        <lanes>
+            <laneSection s="0">
+                <left>
+                    <lane id="1" type="driving" level="false">
+                        <link/>
+                        <width a="3.0" b="0.0" c="-0.0" d="0.0" sOffset="0"/>
+                        <roadMark sOffset="0" type="solid" weight="standard" color="standard" height="0.02" width="0.2"/>
+                    </lane>
+                </left>
+                <center>
+                    <lane id="0" type="none" level="false">
+                        <roadMark sOffset="0" type="solid" weight="standard" color="standard" height="0.02" width="0.2"/>
+                    </lane>
+                </center>
+                <right>
+                    <lane id="-1" type="driving" level="false">
+                        <link/>
+                        <width a="3.0" b="0.0" c="-0.0" d="0.0" sOffset="0"/>
+                        <roadMark sOffset="0" type="solid" weight="standard" color="standard" height="0.02" width="0.2"/>
+                    </lane>
+                </right>
+            </laneSection>
+        </lanes>
+    </road>
+</OpenDRIVE>
