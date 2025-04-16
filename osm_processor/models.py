@@ -2,6 +2,7 @@ import math
 
 from scenariogeneration import xodr
 
+from sg_example import planview
 from utils import calculate_curvature
 import xml.etree.ElementTree as ET
 import numpy as np
@@ -13,6 +14,7 @@ GEOMETRY_ID = 100000
 SEGMENT_ID = 10000
 MAX_SPEED = 40
 LANES_NUMBER = 2
+Pi = 3.14
 CAR_HIGHWAY_TYPES = {
     'motorway', 'motorway_junction', 'motorway_link',
     'trunk', 'trunk_link',
@@ -46,11 +48,12 @@ class OSMNode:
         self.ways = set()  # 记录这个节点所在的所有道路，nodes中的ways是无分的
         self.is_junction = False
         self.is_endpoint = False
-        # TODO 是否要记录这个点相邻的路段信息？
         self.adjacent_segment = []
 
-
 class RoadNetwork:
+    """
+    储存了网络中所有的 节点 路口 道路 ？
+    """
     osm_file = str
     nodes = map
     ways = map
@@ -64,6 +67,8 @@ class RoadNetwork:
         self.junctions = []
         self.road_segments = {}
         self.connections = defaultdict(list)
+
+        self.buildings = {}
 
         self.utm_zone = None
         self.proj = None
@@ -106,11 +111,16 @@ class RoadNetwork:
             tags = {}
             for tag in way.findall('tag'):
                 tags[tag.attrib['k']] = tag.attrib.get('v', '')
-            if tags.get('highway') not in CAR_HIGHWAY_TYPES:
+            if 'building' in tags:
+                building_id = tags['building']
+                node_refs = [nd.attrib['ref'] for nd in way.findall('nd')]
+                self.buildings[building_id] = Building(building_id, node_refs)
+                continue
+            elif tags.get('highway') not in CAR_HIGHWAY_TYPES:
                 continue
 
             way_id = way.attrib['id']
-            way_nodes = [nd.attrib['ref'] for nd in way.findall('nd')]  # TODO（问题在于nodes的记录顺序是否和osm中相同？）
+            way_nodes = [nd.attrib['ref'] for nd in way.findall('nd')]
 
             for nd in way.findall('nd'):
                 node_ref = nd.attrib['ref']
@@ -138,6 +148,21 @@ class RoadNetwork:
             for segment in way.ways_road_segments:
                 self.road_segments[segment.id] = segment
 
+    def multi_geom_function(self):
+        """
+        使用多条几何线拟合、组合后产生的曲线组合
+        """
+        for segment in self.road_segments.values():
+            segment.compute_geometry_segments(self.nodes)  # 记录所有segment中的curvatures
+        for way in self.ways.values():
+            for segment in way.ways_road_segments:
+                segment.split_into_geom()
+
+    def poly3_function(self):
+        for way in self.ways.values():
+            for segment in way.ways_road_segments:
+                segment.produce_poly3(self.nodes)
+
     def process_road_network(self):
         self.parse_osm()  # 初始化节点，道路
         self.mark_endpoints()  # 标记终止节点
@@ -145,12 +170,8 @@ class RoadNetwork:
         for way in self.ways.values():  # 将所有道路分割为segment
             segment_id = way.split_way_into_segment(self.nodes, segment_id)
         self.update_roadnetwork_segments()  # 在路网中记录segments
+        self.multi_geom_function()
 
-        for segment in self.road_segments.values():
-            segment.compute_geometry_segments(self.nodes)  # 记录所有segment中的curvatures
-        for way in self.ways.values():
-            for segment in way.ways_road_segments:
-                segment.split_into_geom()
 
     def get_junction_segments(self):
         """
@@ -242,8 +263,8 @@ class RoadNetwork:
 
     def xodr_generator(self):
         odr = xodr.OpenDrive("my_road_network")
-        road_id = 1
-        junction_id = 100
+        road_id = 10000
+        junction_id = 1
         junctions = defaultdict()  # id -> CommonJunctionCreator
         junctions_with_seg = defaultdict(list)  # id -> seg_id 用于add_connection
         for way in self.ways.values():
@@ -259,7 +280,17 @@ class RoadNetwork:
                     elif geom_seg.type_ == 'spiral':
                         start_k, end_k = geom_seg.start_curvature, geom_seg.end_curvature
                         geom = xodr.Spiral(start_k, end_k, geom_seg.length)
+                    elif geom_seg.type_ == 'poly3':
+                        geom = xodr.ParamPoly3(
+                            geom_seg.au, geom_seg.bu, geom_seg.cu, geom_seg.du,
+                            geom_seg.av, geom_seg.bv, geom_seg.cv, geom_seg.dv,
+                            length=geom_seg.length,
+                            prange="normalized"  # 使用 u∈[0,1]
+                        )
                     geometry.append(geom)
+                    # 创建一个geometry
+                    # planview 的 h_start为起始角，0为东，pi/2为北
+                planview = xodr.PlanView(x_start=None, y_start=None, h_start = None)
                 road = xodr.create_road(geometry, id=road_id, left_lanes=way.lanes, right_lanes=way.lanes)
                 odr.add_road(road)
                 seg.road_id = road_id  # 记录 road_id
@@ -274,54 +305,57 @@ class RoadNetwork:
                 jc = None
                 if start_node.is_junction:
                     if seg.start not in junctions:
-                        jc = xodr.CommonJunctionCreator(junction_id, name="fuzhoudragon")
-                        odr.add_junction_creator(jc)
+                        jc = xodr.CommonJunctionCreator(junction_id, name=f"fuzhoudragon{junction_id}", startnum=junction_id)
                         junctions[seg.start] = jc
-                        junction_id+=10
+                        junction_id=junction_id+10
                     elif seg.start in junctions:
                         jc = junctions[seg.start]
+                    angle_pre = math.atan2(start_next_node.y - start_node.y, start_next_node.x - start_node.x) - Pi
                     jc.add_incoming_road_cartesian_geometry(road,
                                                             x=start_next_node.x - start_node.x,
                                                             y=start_next_node.y - start_node.y,
-                                                            heading=math.atan2(
-                                                                            start_next_node.y - start_node.y,
-                                                                            start_next_node.x - start_node.x),
+                                                            heading=angle_pre,
                                                             road_connection="predecessor")
-                    print(f"cartesian situation:{start_next_node.x - start_node.x}, {start_next_node.y - start_node.y}")
+                    # print(f"road_id:{road_id}:cartesian situation:{start_next_node.x - start_node.x}, {start_next_node.y - start_node.y}, angle: {angle_pre / 3.14} Pi")
                     if jc.id not in junctions_with_seg:
                         junctions_with_seg[jc.id].append(road_id)
                     else:
                         for other_seg in junctions_with_seg[jc.id]:
                             jc.add_connection(road_id, other_seg)
-                            print(f"{road_id}, {other_seg} has been connected!")
-                    junctions_with_seg[jc.id].append(road_id)
+                            print(f"{road_id}, {other_seg} has been connected in {jc.id} junction:startpoint")
+                        junctions_with_seg[jc.id].append(road_id)
+
+
                 if end_node.is_junction:
                     if seg.end not in junctions:
-                        jc = xodr.CommonJunctionCreator(junction_id, name="fuzhoudragon")
+                        jc = xodr.CommonJunctionCreator(junction_id, name=f"fuzhoudragon{junction_id}", startnum=junction_id)
                         junctions[seg.end] = jc
-                        odr.add_junction_creator(jc)
-                        junction_id += 10
+                        junction_id = junction_id + 10
                     elif seg.end in junctions:
                         jc = junctions[seg.end]
+                    angle_suc = math.atan2(end_prev_node.y - end_node.y, end_prev_node.x - end_node.x) - Pi
                     jc.add_incoming_road_cartesian_geometry(road,
-                                                            x=end_node.x - end_prev_node.x,
-                                                            y=end_node.y - end_prev_node.y,
-                                                            heading=math.atan2(
-                                                                            end_node.x - end_prev_node.x,
-                                                                            end_node.y - end_prev_node.y),
+                                                            x=(end_prev_node.x - end_node.x),
+                                                            y=(end_prev_node.y - end_node.y),
+                                                            heading=angle_suc,
                                                             road_connection="successor")
-                    print(f"cartesian situation:{start_next_node.x - start_node.x}, {start_next_node.y - start_node.y}")
+                    # print(f"road_id:{road_id}:cartesian situation:{start_next_node.x - start_node.x}, {start_next_node.y - start_node.y}, angle: {angle_suc / Pi} Pi")
                     if jc.id not in junctions_with_seg:
                         junctions_with_seg[jc.id].append(road_id)
                     else:
-                        for other_seg in junctions_with_seg[jc]:
+                        for other_seg in junctions_with_seg[jc.id]:
                             jc.add_connection(road_id, other_seg)
-                            print(f"{road_id}, {other_seg} has been connected!")
-                    junctions_with_seg[jc].append(road_id)
+                            print(f"{road_id}, {other_seg} has been connected! in {jc.id} junction:endpoint")
+                        junctions_with_seg[jc.id].append(road_id)
                 road_id += 1
-        print("xodr_generation completed")
+        for jun in junctions.values():
+            odr.add_junction_creator(jun)
         return odr
 
+class Building:
+    def __init__(self, id, nodes):
+        self.id = id
+        self.nodes = nodes
 
 class JunctionNode:
     def __init__(self, center_node):
@@ -563,13 +597,64 @@ class RoadSegment:
             self.geometry_segments.append(geom_seg)
         return segments
 
+    def produce_poly3(self, nodes_dict):
+        coords = np.array([(nodes_dict[node_id].x, nodes_dict[node_id].y) for node_id in self.nodes])
+        if len(coords) < 4:  # 至少需要4个点以稳定拟合
+            return
+
+        # 计算实际总长度（基于UTM坐标差）
+        dx = np.diff(coords[:, 0])
+        dy = np.diff(coords[:, 1])
+        segment_lengths = np.hypot(dx, dy)
+        total_length = np.sum(segment_lengths)
+
+        # 参数t基于累积弧长（归一化到[0,1]）
+        t = np.insert(np.cumsum(segment_lengths), 0, 0) / total_length
+
+        # 确保端点精确
+        A = np.vstack([t ** 3, t ** 2, t, np.ones_like(t)]).T
+        A = np.vstack([A, [1, 1, 1, 1], [0, 0, 0, 1]])  # 添加u=1和u=0的约束
+
+        # 解方程组
+        try:
+            coeffs_x, _, _, _ = np.linalg.lstsq(A, np.append(coords[:, 0], [coords[-1, 0], coords[0, 0]]), rcond=None)
+            coeffs_y, _, _, _ = np.linalg.lstsq(A, np.append(coords[:, 1], [coords[-1, 1], coords[0, 1]]), rcond=None)
+        except np.linalg.LinAlgError:
+            return
+
+        # 确保端点精确
+        coeffs_x[-1] = coords[0, 0]  # dU = 起始点x
+        coeffs_y[-1] = coords[0, 1]  # dV = 起始点y
+        coeffs_x[2] = coords[-1, 0] - (coeffs_x[0] + coeffs_x[1] + coeffs_x[3])  # 调整cU
+
+        geom_seg = Poly3(
+            id=GEOMETRY_ID,
+            start_node_id=self.start,
+            end_node_id=self.end,
+            node_ids=self.nodes,
+            length=total_length,  # 使用实际坐标计算的总长度
+            au=coeffs_x[0], bu=coeffs_x[1], cu=coeffs_x[2], du=coeffs_x[3],
+            av=coeffs_y[0], bv=coeffs_y[1], cv=coeffs_y[2], dv=coeffs_y[3]
+        )
+        self.geometry_segments = [geom_seg]
+
 
 class GeometrySegment:
     """
     将road segment分割为多段Geometry Segment便于xodr道路的生成，
     """
 
-    def __init__(self, id, start_node_id, end_node_id, node_ids, length, start_curvature, end_curvature, type_):
+    def __init__(self, id, start_node_id, end_node_id, node_ids, length,
+                 start_curvature=0.0, end_curvature=0.0,
+                 type_="None",
+                 au=0.0,
+                 bu=0.0,
+                 cu=0.0,
+                 du=0.0,
+                 av=0.0,
+                 bv=0.0,
+                 cv=0.0,
+                 dv=0.0):
         self.geom_id = id
         self.start = start_node_id
         self.end = end_node_id
@@ -578,7 +663,14 @@ class GeometrySegment:
         self.start_curvature = start_curvature
         self.end_curvature = end_curvature
         self.type_ = type_
-
+        self.au = au
+        self.bu = bu
+        self.cu = cu
+        self.du = du
+        self.av = av
+        self.bv = bv
+        self.cv = cv
+        self.dv = dv
     def print_info(self):
         """打印几何段基础信息"""
         print(
@@ -630,4 +722,21 @@ class Spiral(GeometrySegment):
             end_curvature=end_curvature,      # 结束曲率
             type_="spiral"
         )
-
+class Poly3(GeometrySegment):
+    def __init__(self, id, start_node_id, end_node_id, node_ids, length, au, bu, cu, du, av, bv, cv, dv):
+        super().__init__(
+            id=id,
+            start_node_id=start_node_id,
+            end_node_id=end_node_id,
+            node_ids=node_ids,
+            length=length,
+            au = au,
+            bu = bu,
+            cu = cu,
+            du = du,
+            av = av,
+            bv = bv,
+            cv = cv,
+            dv = dv,
+            type_="poly3"
+        )
